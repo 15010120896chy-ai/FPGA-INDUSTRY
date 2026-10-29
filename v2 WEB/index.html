@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>缺陷智能分析终端 · CYBER EDITION</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%23050a18'/><text x='50' y='72' font-size='58' text-anchor='middle' fill='%2300f0ff'>◈</text></svg>" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>window.Chart || document.write('<script src="https://unpkg.com/chart.js@4.4.1/dist/chart.umd.min.js"><\/script>')</script>
+<style>
+    :root{
+        --bg:#04070f; --panel:rgba(10,22,42,.72); --panel2:rgba(5,12,26,.9);
+        --neon:#00f0ff; --neon2:#ff2ec4; --neon3:#7c5cff; --green:#00ff9c; --amber:#ffb020; --red:#ff5c7a;
+        --text:#d7f7ff; --muted:#5f8fa3; --line:rgba(0,240,255,.22);
+        --font:'Segoe UI',Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+        --mono:'Cascadia Code',Consolas,'Courier New',monospace;
+    }
+    *{margin:0;padding:0;box-sizing:border-box}
+    html,body{min-height:100%}
+    body{
+        background:var(--bg); color:var(--text); font-family:var(--font);
+        position:relative; overflow-x:hidden;
+    }
+    /* ---------- 背景：星空 + 网格 + 扫描线 ---------- */
+    body::before{
+        content:""; position:fixed; inset:0; z-index:-2; pointer-events:none;
+        background:
+            radial-gradient(ellipse at 20% -10%, rgba(0,240,255,.10), transparent 45%),
+            radial-gradient(ellipse at 85% 10%, rgba(124,92,255,.12), transparent 45%),
+            radial-gradient(ellipse at 50% 110%, rgba(255,46,196,.08), transparent 50%),
+            #04070f;
+    }
+    body::after{
+        content:""; position:fixed; left:0; right:0; height:140px; z-index:-1; pointer-events:none;
+        background:linear-gradient(to bottom, transparent, rgba(0,240,255,.05), transparent);
+        animation:scan 9s linear infinite;
+    }
+    @keyframes scan{ 0%{top:-140px} 100%{top:100vh} }
+    .grid{
+        position:fixed; inset:0; z-index:-1; pointer-events:none; opacity:.5;
+        background-image:
+            linear-gradient(rgba(0,240,255,.05) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(0,240,255,.05) 1px, transparent 1px);
+        background-size:44px 44px;
+        mask-image:radial-gradient(ellipse at 50% 0%, #000 30%, transparent 75%);
+        -webkit-mask-image:radial-gradient(ellipse at 50% 0%, #000 30%, transparent 75%);
+    }
+    /* ---------- 顶栏 ---------- */
+    header{
+        display:flex; align-items:center; justify-content:space-between;
+        padding:14px 22px; position:sticky; top:0; z-index:20;
+        background:linear-gradient(180deg, rgba(4,10,20,.95), rgba(4,10,20,.75));
+        border-bottom:1px solid var(--line);
+        box-shadow:0 0 24px rgba(0,240,255,.08);
+    }
+    .brand{
+        font-size:1.25rem; font-weight:800; letter-spacing:2px;
+        color:#eaffff; text-shadow:0 0 10px rgba(0,240,255,.8), 0 0 30px rgba(0,240,255,.35);
+        display:flex; align-items:center; gap:12px;
+    }
+    .brand .logo{
+        width:34px; height:34px; border:1px solid var(--neon); border-radius:6px;
+        display:flex; align-items:center; justify-content:center; color:var(--neon);
+        font-size:1.1rem; box-shadow:0 0 12px rgba(0,240,255,.5), inset 0 0 8px rgba(0,240,255,.2);
+        animation:pulse 2.6s ease-in-out infinite;
+    }
+    @keyframes pulse{ 0%,100%{box-shadow:0 0 10px rgba(0,240,255,.45), inset 0 0 8px rgba(0,240,255,.18)} 50%{box-shadow:0 0 22px rgba(0,240,255,.85), inset 0 0 12px rgba(0,240,255,.3)} }
+    .brand small{color:var(--muted); font-weight:400; letter-spacing:1px; font-size:.72rem; border-left:1px solid var(--line); padding-left:12px}
+    .header-right{display:flex; align-items:center; gap:10px}
+    .badge{font-size:.72rem; padding:4px 12px; border-radius:4px; letter-spacing:1px; cursor:pointer;
+        border:1px solid var(--line); background:rgba(0,240,255,.06); text-transform:uppercase}
+    .badge.warn{color:var(--amber); border-color:rgba(255,176,32,.4); box-shadow:0 0 8px rgba(255,176,32,.25)}
+    .badge.ok{color:var(--green); border-color:rgba(0,255,156,.4); box-shadow:0 0 8px rgba(0,255,156,.25)}
+    /* ---------- 主布局 HUD ---------- */
+    main{
+        display:grid; grid-template-columns:minmax(270px,310px) 1fr 1fr;
+        gap:14px; max-width:1560px; margin:0 auto; padding:16px;
+    }
+    .terminal{grid-column:1; grid-row:1 / 3}
+    .stats{grid-column:2 / 4; grid-row:1}
+    .bar-panel{grid-column:2; grid-row:2}
+    .radar-panel{grid-column:3; grid-row:2}
+    .chat-panel{grid-column:1 / 4; grid-row:3}
+    .panel{
+        position:relative;
+        background:var(--panel);
+        border:1px solid var(--line);
+        border-radius:10px; padding:16px;
+        backdrop-filter:blur(6px);
+        box-shadow:0 0 18px rgba(0,240,255,.06), inset 0 0 30px rgba(0,240,255,.03);
+    }
+    .panel::before{   /* 顶部霓虹线 */
+        content:""; position:absolute; top:-1px; left:12px; right:12px; height:1px;
+        background:linear-gradient(90deg, transparent, var(--neon), var(--neon2), transparent);
+        opacity:.8;
+    }
+    .panel-title{
+        font-size:.9rem; font-weight:700; letter-spacing:2px; margin-bottom:12px;
+        display:flex; align-items:center; gap:8px; flex-wrap:wrap; color:#aef6ff;
+        text-shadow:0 0 8px rgba(0,240,255,.5);
+    }
+    .panel-title::before{ content:"◢"; color:var(--neon); font-size:.75rem; opacity:.8 }
+    .panel-title .spacer{flex:1}
+    .panel-title .sub{font-size:.7rem; color:var(--muted); font-weight:400; letter-spacing:1px}
+    .chart-wrap{height:270px; position:relative}
+    /* ---------- 数据终端 ---------- */
+    table{width:100%; border-collapse:collapse}
+    th{
+        font-size:.68rem; color:var(--muted); text-align:left; padding:5px 6px;
+        letter-spacing:1px; border-bottom:1px solid var(--line); font-weight:600;
+    }
+    td{padding:4px 6px}
+    td input{
+        width:100%; background:rgba(3,10,22,.85); color:var(--text);
+        border:1px solid rgba(0,240,255,.18); border-radius:4px; padding:6px 8px;
+        font-size:.85rem; font-family:var(--mono);
+    }
+    td input:focus{outline:none; border-color:var(--neon); box-shadow:0 0 8px rgba(0,240,255,.35)}
+    tr:hover td{background:rgba(0,240,255,.05)}
+    .del{
+        background:transparent; color:var(--red); border:1px solid transparent; cursor:pointer;
+        font-size:.85rem; padding:4px 7px; border-radius:4px;
+    }
+    .del:hover{border-color:rgba(255,92,122,.5); background:rgba(255,92,122,.1); box-shadow:0 0 8px rgba(255,92,122,.3)}
+    .data-actions{display:flex; align-items:center; gap:8px; margin-top:10px; flex-wrap:wrap}
+    .hint{font-size:.72rem; color:var(--muted); letter-spacing:.5px}
+    .hint.warn{color:var(--amber)}
+    /* ---------- 能量条（数据终端下方） ---------- */
+    .energy-block{margin-top:14px; border-top:1px dashed var(--line); padding-top:12px}
+    .energy-block .eb-title{font-size:.72rem; color:var(--muted); letter-spacing:2px; margin-bottom:8px}
+    .ebar{margin-bottom:8px}
+    .ebar-label{display:flex; justify-content:space-between; font-size:.76rem; margin-bottom:3px}
+    .ebar-name{color:#c9f6ff}
+    .ebar-num em{color:var(--muted); font-style:normal; font-size:.7rem; margin-left:6px}
+    .ebar-track{
+        height:8px; background:rgba(0,240,255,.07); border:1px solid rgba(0,240,255,.15);
+        border-radius:4px; overflow:hidden; position:relative;
+    }
+    .ebar-fill{
+        height:100%; border-radius:4px;
+        background:linear-gradient(90deg, var(--neon3), var(--neon), var(--neon2));
+        box-shadow:0 0 10px rgba(0,240,255,.6);
+        transition:width .6s cubic-bezier(.2,.8,.2,1);
+    }
+    /* ---------- HUD 统计卡 ---------- */
+    .stats-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:14px; height:100%}
+    .stat{
+        position:relative; border:1px solid var(--line); border-radius:8px; padding:14px 16px;
+        background:rgba(4,12,26,.6); overflow:hidden;
+        box-shadow:inset 0 0 20px rgba(0,240,255,.05);
+    }
+    .stat::after{
+        content:""; position:absolute; right:10px; top:10px; width:8px; height:8px;
+        border-top:1px solid var(--neon); border-right:1px solid var(--neon); opacity:.7;
+    }
+    .stat .k{
+        display:block; font-size:.68rem; color:var(--muted); letter-spacing:2px; margin-bottom:8px;
+    }
+    .stat .v{
+        font-size:1.9rem; font-weight:800; color:var(--neon); font-family:var(--mono);
+        text-shadow:0 0 14px rgba(0,240,255,.7); line-height:1.1; word-break:break-all;
+    }
+    .stat:nth-child(2) .v{color:var(--green); text-shadow:0 0 14px rgba(0,255,156,.6)}
+    .stat:nth-child(3) .v{color:var(--neon2); text-shadow:0 0 14px rgba(255,46,196,.6)}
+    /* ---------- 按钮 ---------- */
+    button{
+        background:rgba(0,240,255,.06); color:var(--text);
+        border:1px solid var(--line); border-radius:4px;
+        padding:8px 16px; font-size:.82rem; font-weight:600; letter-spacing:1px;
+        cursor:pointer; transition:all .18s; position:relative; overflow:hidden;
+    }
+    button:hover{
+        border-color:var(--neon); color:#eaffff;
+        box-shadow:0 0 12px rgba(0,240,255,.4);
+        text-shadow:0 0 6px rgba(0,240,255,.8);
+    }
+    button:disabled{opacity:.4; cursor:not-allowed; box-shadow:none; text-shadow:none}
+    button.primary{
+        background:linear-gradient(135deg, rgba(0,240,255,.22), rgba(124,92,255,.22));
+        border-color:rgba(0,240,255,.6); color:#eaffff;
+        box-shadow:0 0 14px rgba(0,240,255,.25);
+    }
+    button.primary:hover{box-shadow:0 0 22px rgba(0,240,255,.55)}
+    button.ghost{background:transparent}
+    /* ---------- AI 终端对话区 ---------- */
+    .chat-area{
+        background:var(--panel2); border:1px solid var(--line); border-radius:6px;
+        padding:14px; min-height:130px; max-height:440px; overflow-y:auto;
+        display:flex; flex-direction:column; gap:12px;
+        box-shadow:inset 0 0 24px rgba(0,255,156,.03);
+    }
+    .chat-area::-webkit-scrollbar{width:8px}
+    .chat-area::-webkit-scrollbar-thumb{background:rgba(0,240,255,.25); border-radius:4px}
+    .empty{text-align:center; color:var(--muted); padding:26px 10px}
+    .empty p{margin-bottom:14px; font-size:.86rem; letter-spacing:.5px}
+    .msg{max-width:88%; padding:10px 14px; border-radius:6px; font-size:.88rem; line-height:1.65; white-space:pre-wrap; word-break:break-word}
+    .msg.user{
+        align-self:flex-end; color:#eaffff;
+        background:rgba(0,240,255,.08); border:1px solid rgba(0,240,255,.4);
+        box-shadow:0 0 10px rgba(0,240,255,.12);
+    }
+    .msg.assistant{
+        align-self:flex-start; width:100%;
+        background:rgba(2,12,26,.75); border:1px solid rgba(0,255,156,.25);
+        box-shadow:0 0 12px rgba(0,255,156,.06);
+    }
+    .msg.assistant .a-head{
+        display:flex; align-items:center; gap:8px; margin-bottom:6px;
+        font-size:.72rem; color:var(--green); letter-spacing:1px;
+    }
+    .msg.assistant .a-head::before{content:"▌"; animation:pulse 2s infinite}
+    .msg.assistant .a-head .copy{margin-left:auto; font-size:.68rem; padding:2px 10px; border-radius:4px}
+    .msg.assistant .a-body p{margin:0 0 8px}
+    .msg.assistant .a-body p:last-child{margin-bottom:0}
+    .msg.assistant .a-body ul,.msg.assistant .a-body ol{margin:0 0 8px; padding-left:20px}
+    .msg.assistant .a-body li{margin-bottom:3px}
+    .msg.assistant .a-body h3,.msg.assistant .a-body h4{margin:10px 0 6px; color:var(--neon); text-shadow:0 0 8px rgba(0,240,255,.5)}
+    .msg.assistant .a-body code{background:rgba(0,240,255,.1); padding:1px 5px; border-radius:4px; font-size:.82em; font-family:var(--mono)}
+    .msg.assistant .a-body pre{background:#020a16; border:1px solid var(--line); border-radius:6px; padding:10px; overflow-x:auto; margin:0 0 8px}
+    .msg.assistant .a-body pre code{background:none; padding:0}
+    .reasoning{margin-top:8px; border-top:1px dashed var(--line); padding-top:8px; font-size:.78rem}
+    .reasoning summary{cursor:pointer; color:var(--muted)}
+    .reasoning .r-content{color:var(--muted); margin-top:6px; white-space:pre-wrap; font-family:var(--mono); font-size:.76rem}
+    .caret::after{content:"▍"; color:var(--green); animation:blink 1s steps(1) infinite}
+    @keyframes blink{50%{opacity:0}}
+    .error{color:var(--red)}
+    /* ---------- 输入区 ---------- */
+    .chat-input{display:flex; gap:10px; margin-top:12px; align-items:flex-end}
+    .chat-input textarea{
+        flex:1; resize:none; background:rgba(3,10,22,.85); color:var(--text);
+        border:1px solid var(--line); border-radius:6px; padding:10px 12px;
+        font-size:.88rem; font-family:var(--font); line-height:1.5;
+    }
+    .chat-input textarea:focus{outline:none; border-color:var(--green); box-shadow:0 0 10px rgba(0,255,156,.3)}
+    .chat-btns{display:flex; gap:8px}
+    .chat-actions{display:flex; align-items:center; gap:10px; margin-top:10px; flex-wrap:wrap}
+    /* ---------- 弹窗 ---------- */
+    .modal{
+        position:fixed; inset:0; background:rgba(2,6,14,.8); z-index:100;
+        display:flex; align-items:center; justify-content:center; padding:20px;
+        backdrop-filter:blur(4px);
+    }
+    .modal-box{
+        background:linear-gradient(180deg, rgba(10,24,46,.96), rgba(5,12,26,.96));
+        border:1px solid var(--line); border-radius:10px; padding:22px; width:100%; max-width:460px;
+        box-shadow:0 0 40px rgba(0,240,255,.15), inset 0 0 40px rgba(0,240,255,.03);
+        position:relative;
+    }
+    .modal-box::before{
+        content:""; position:absolute; top:-1px; left:10px; right:10px; height:1px;
+        background:linear-gradient(90deg, transparent, var(--neon), var(--neon2), transparent);
+    }
+    .modal-box h3{margin-bottom:16px; color:#aef6ff; letter-spacing:2px; text-shadow:0 0 10px rgba(0,240,255,.5)}
+    .modal-box label{display:block; margin-bottom:14px; font-size:.82rem; color:var(--muted); letter-spacing:.5px}
+    .modal-box input[type=text],.modal-box input[type=password]{
+        width:100%; margin-top:6px; background:rgba(3,10,22,.9); color:var(--text);
+        border:1px solid rgba(0,240,255,.2); border-radius:6px; padding:9px 11px; font-size:.9rem;
+    }
+    .modal-box input:focus{outline:none; border-color:var(--neon); box-shadow:0 0 10px rgba(0,240,255,.35)}
+    .key-row{display:flex; gap:8px; align-items:center}
+    .key-row input{flex:1}
+    .range-row{display:flex; align-items:center; gap:10px; margin-top:6px}
+    .range-row input[type=range]{flex:1; accent-color:var(--neon)}
+    #tempVal{color:var(--neon); font-weight:700; width:36px; font-family:var(--mono)}
+    .modal-actions{display:flex; align-items:center; gap:10px; margin-top:14px; flex-wrap:wrap}
+    #testResult{font-size:.76rem}
+    .hidden{display:none !important}
+    /* ---------- toast ---------- */
+    .toast{
+        position:fixed; left:50%; bottom:30px; transform:translateX(-50%) translateY(20px);
+        background:rgba(4,14,28,.95); color:var(--green);
+        border:1px solid rgba(0,255,156,.5); padding:10px 20px; border-radius:6px;
+        font-size:.84rem; font-weight:600; letter-spacing:.5px; opacity:0; pointer-events:none;
+        transition:opacity .25s, transform .25s; z-index:200;
+        box-shadow:0 0 24px rgba(0,255,156,.25); max-width:90vw; text-align:center;
+    }
+    .toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
+    footer{text-align:center; color:var(--muted); font-size:.72rem; letter-spacing:1px; padding:18px 10px 30px}
+    @media (max-width:1200px){
+        main{grid-template-columns:1fr}
+        .terminal,.stats,.bar-panel,.radar-panel,.chat-panel{grid-column:auto; grid-row:auto}
+    }
+</style>
+</head>
+<body>
+<div class="grid"></div>
+
+<header>
+    <div class="brand">
+        <span class="logo">◈</span>
+        缺陷智能分析终端
+        <small>DEEPSEEK AI · CYBER EDITION</small>
+    </div>
+    <div class="header-right">
+        <span id="keyStatus" class="badge warn">未配置 KEY</span>
+        <button id="settingsBtn" class="ghost">⚙ 设置</button>
+    </div>
+</header>
+
+<main>
+    <!-- 数据终端 -->
+    <section class="panel terminal">
+        <div class="panel-title">缺陷数据终端 <span class="sub">实时 · 可编辑</span></div>
+        <table>
+            <thead><tr><th style="width:46%">缺陷类型</th><th style="width:38%">数量</th><th style="width:16%"></th></tr></thead>
+            <tbody id="dataBody"></tbody>
+        </table>
+        <div class="data-actions">
+            <button id="addRowBtn" class="ghost">＋ 添加</button>
+            <button id="piFetchBtn" class="ghost">📡 树莓派数据</button>
+            <span id="dataHint" class="hint hidden">✏️ 数据已修改，建议重新分析</span>
+        </div>
+        <!-- 能量条 -->
+        <div class="energy-block">
+            <div class="eb-title">▮▮ 各缺陷能量条 · 实时占比</div>
+            <div id="energyBars"></div>
+        </div>
+    </section>
+
+    <!-- HUD 统计 -->
+    <section class="panel stats">
+        <div class="panel-title">系统统计 <span class="sub">HUD</span></div>
+        <div class="stats-grid">
+            <div class="stat"><span class="k">缺陷总数</span><span class="v" id="sumTotal">0</span></div>
+            <div class="stat"><span class="k">占比最高</span><span class="v" id="sumTop">–</span></div>
+            <div class="stat"><span class="k">缺陷类别数</span><span class="v" id="sumKinds">0</span></div>
+        </div>
+    </section>
+
+    <!-- 直方图 -->
+    <section class="panel bar-panel">
+        <div class="panel-title">缺陷数量直方图 <span class="sub">BAR</span></div>
+        <div class="chart-wrap"><canvas id="barChart"></canvas></div>
+    </section>
+
+    <!-- 雷达图 -->
+    <section class="panel radar-panel">
+        <div class="panel-title">缺陷特征雷达 <span class="sub">RADAR</span></div>
+        <div class="chart-wrap"><canvas id="radarChart"></canvas></div>
+    </section>
+
+    <!-- AI 终端 -->
+    <section class="panel chat-panel">
+        <div class="panel-title">
+            AI 分析 · 多轮对话 <span class="sub">TERMINAL</span>
+            <span class="spacer"></span>
+            <span id="modelTag" class="badge ok">deepseek-chat</span>
+        </div>
+        <div id="chatArea" class="chat-area">
+            <div class="empty" id="chatEmpty">
+                <p>AI 将基于左侧缺陷统计生成分析报告（概览 → 主要问题 → 可能原因 → 改进建议），生成后可以继续追问。</p>
+                <button id="analyzeBtn" class="primary">◈ 生成 AI 分析报告</button>
+            </div>
+        </div>
+        <div class="chat-input">
+            <textarea id="userInput" rows="2"
+                placeholder="追问，例如：褶皱占比最高，可能是什么工艺问题？该怎么改进？&#10;(Enter 发送，Shift+Enter 换行)"></textarea>
+            <div class="chat-btns">
+                <button id="stopBtn" class="ghost hidden">⏹ 停止</button>
+                <button id="sendBtn" class="primary" disabled>发送</button>
+            </div>
+        </div>
+        <div class="chat-actions">
+            <button id="reanalyzeBtn" class="ghost">⟳ 用当前数据重新分析</button>
+            <button id="clearBtn" class="ghost">✕ 清空对话</button>
+            <span class="hint">一次分析约几百 token（几分钱）。模型与参数在 ⚙ 设置中调整。</span>
+        </div>
+    </section>
+</main>
+
+<footer>AI2 实验版 · 本地代理服务 · DeepSeek API · API Key 仅保存在本机 · <span id="ver">v2.0</span></footer>
+
+<div id="toast" class="toast"></div>
+
+<!-- 设置弹窗 -->
+<div id="settingsModal" class="modal hidden">
+    <div class="modal-box">
+        <h3>⚙ 连接设置</h3>
+        <label>DeepSeek API Key
+            <div class="key-row">
+                <input id="setKey" type="text" placeholder="sk-..." autocomplete="off" spellcheck="false" />
+            </div>
+            <div id="keyState" style="margin-top:5px; font-size:.75rem; color:var(--muted)">未保存</div>
+        </label>
+        <label>接口地址（一般不用改）
+            <input id="setBase" type="text" />
+        </label>
+        <label>树莓派数据地址（可空；填前端 8080 或后端 7777 地址均可，自动识别）
+            <input id="setPiUrl" type="text" placeholder="http://172.16.68.111:8080 或 http://172.16.68.111:7777" spellcheck="false" />
+        </label>
+        <label>模型
+            <input id="setModel" type="text" list="modelList" />
+            <datalist id="modelList">
+                <option value="deepseek-chat">deepseek-chat · 通用对话，性价比高（推荐）</option>
+                <option value="deepseek-reasoner">deepseek-reasoner · 带思考过程，适合答辩展示</option>
+            </datalist>
+        </label>
+        <label>温度（随机性）
+            <div class="range-row">
+                <input id="setTemp" type="range" min="0" max="1.5" step="0.1" />
+                <span id="tempVal">0.3</span>
+            </div>
+        </label>
+        <div class="modal-actions">
+            <button id="testConnBtn" class="ghost">🔌 测试连接</button>
+            <span id="testResult"></span>
+        </div>
+        <div class="modal-actions">
+            <button id="saveSettingsBtn" class="primary">保存</button>
+            <button id="closeSettingsBtn" class="ghost">关闭</button>
+        </div>
+        <div class="hint" style="margin-top:8px">Key 输入即自动保存，关闭窗口也不丢失；点"测试连接"可验证 Key 是否有效。</div>
+    </div>
+</div>
+
+<script>
+'use strict';
+/* ================= 状态 ================= */
+const DEFAULTS = { apiKey:'', baseUrl:'https://api.deepseek.com', model:'deepseek-chat', temperature:0.3, piUrl:'' };
+const PALETTE = ['#00f0ff','#ff2ec4','#7c5cff','#00ff9c','#ffb020','#5cd8ff','#ff5c7a','#a3ff5c','#ff9d5c','#c77dff'];
+
+let settings = loadSettings();
+let data = { 擦伤:331, 裂边:135, 脏污:1014, 褶皱:1143, 针孔:138 };
+let messages = [];          // 历史对话（不含 system）
+let streaming = false;
+let abortCtrl = null;
+let chatStarted = false;
+let barChart = null, radarChart = null;
+let lastTotal = -1;
+
+function loadSettings(){
+    try{
+        const s = JSON.parse(localStorage.getItem('dsai_settings') || '{}');
+        return Object.assign({}, DEFAULTS, s);
+    }catch(e){ return Object.assign({}, DEFAULTS); }
+}
+function saveSettings(){
+    try{ localStorage.setItem('dsai_settings', JSON.stringify(settings)); }
+    catch(e){ /* localStorage 不可用时仅在内存中保存，刷新页面会丢失 */ }
+}
+
+/* ================= 工具 ================= */
+function escapeHtml(s){
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function escAttr(s){ return escapeHtml(s); }
+function $(id){ return document.getElementById(id); }
+
+/* 轻量 Markdown 渲染（先转义，安全） */
+function md(src){
+    let html = escapeHtml(src);
+    html = html.replace(/```([\s\S]*?)```/g, (m, code) => '<pre><code>'+code+'</code></pre>');
+    html = html.replace(/^### (.*)$/gm,'<h4>$1</h4>');
+    html = html.replace(/^## (.*)$/gm,'<h3>$1</h3>');
+    html = html.replace(/^# (.*)$/gm,'<h3>$1</h3>');
+    const lines = html.split('\n');
+    let out = [], inList = false;
+    for(const line of lines){
+        const ul = line.match(/^[-*] (.*)$/);
+        const ol = line.match(/^\d+[.、] (.*)$/);
+        if(ul || ol){
+            const tag = ul ? 'ul' : 'ol';
+            if(!inList){ out.push('<'+tag+'>'); inList = true; }
+            out.push('<li>'+(ul ? ul[1] : ol[1])+'</li>');
+        }else{
+            if(inList){ out.push('</ul>'); inList = false; }
+            out.push(line);
+        }
+    }
+    if(inList) out.push('</ul>');
+    html = out.join('\n');
+    html = html.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
+    html = html.replace(/`([^`]+)`/g,'<code>$1</code>');
+    const paras = html.split('\n\n').map(p => {
+        if(/^\s*<(ul|ol|pre|h\d)/.test(p)) return p;
+        return '<p>'+p.replace(/\n/g,'<br>')+'</p>';
+    });
+    return paras.join('');
+}
+
+/* ================= 图表 ================= */
+function initCharts(){
+    if(typeof Chart === 'undefined'){
+        $('barChart').parentElement.innerHTML = '<p class="error">⚠️ 图表库(Chart.js)加载失败：请确认电脑能联网。</p>';
+        return;
+    }
+    barChart = new Chart($('barChart'), {
+        type:'bar',
+        data:{ labels:[], datasets:[{
+            label:'缺陷数量', data:[], backgroundColor:[], borderColor:[],
+            borderWidth:1, borderRadius:3, hoverBackgroundColor:[],
+        }] },
+        options:{
+            responsive:true, maintainAspectRatio:false,
+            plugins:{ legend:{display:false} },
+            scales:{
+                y:{ beginAtZero:true, grid:{ color:'rgba(0,240,255,.1)' }, ticks:{ color:'#5f8fa3' } },
+                x:{ grid:{ display:false }, ticks:{ color:'#9fd8e8' } }
+            }
+        }
+    });
+    radarChart = new Chart($('radarChart'), {
+        type:'radar',
+        data:{ labels:[], datasets:[{
+            label:'缺陷数量', data:[],
+            backgroundColor:'rgba(0,240,255,.14)',
+            borderColor:'#00f0ff', borderWidth:2,
+            pointBackgroundColor:'#ff2ec4', pointBorderColor:'#ff2ec4',
+            pointRadius:3, pointHoverRadius:5,
+        }] },
+        options:{
+            responsive:true, maintainAspectRatio:false,
+            plugins:{ legend:{display:false} },
+            scales:{ r:{
+                angleLines:{ color:'rgba(0,240,255,.2)' },
+                grid:{ color:'rgba(0,240,255,.12)' },
+                pointLabels:{ color:'#aef6ff', font:{size:12} },
+                ticks:{ display:false, suggestedMin:0 },
+                suggestedMin:0,
+            } }
+        }
+    });
+    refreshCharts();
+}
+function refreshCharts(){
+    if(!barChart) return;
+    const labels = Object.keys(data), values = Object.values(data);
+    const colors = labels.map((_,i)=>PALETTE[i % PALETTE.length]);
+    barChart.data.labels = labels; barChart.data.datasets[0].data = values;
+    barChart.data.datasets[0].backgroundColor = colors.map(c => c + 'cc');
+    barChart.data.datasets[0].borderColor = colors;
+    barChart.data.datasets[0].hoverBackgroundColor = colors;
+    barChart.update();
+    radarChart.data.labels = labels; radarChart.data.datasets[0].data = values;
+    radarChart.update();
+    renderEnergyBars();
+    updateSummary();
+}
+/* 能量条：每个缺陷一条霓虹进度条，显示数量与占比 */
+function renderEnergyBars(){
+    const box = $('energyBars');
+    if(!box) return;
+    const entries = Object.entries(data);
+    const total = entries.reduce((s,e)=>s+e[1],0) || 1;
+    const max = Math.max.apply(null, entries.map(e=>e[1]).concat([1]));
+    box.innerHTML = entries.map(([k,v])=>{
+        const pct = (v/total*100).toFixed(1);
+        const w = (v/max*100).toFixed(1);
+        return '<div class="ebar"><div class="ebar-label"><span class="ebar-name">'+escapeHtml(k)+
+            '</span><span class="ebar-num">'+v+'<em>'+pct+'%</em></span></div>'+
+            '<div class="ebar-track"><div class="ebar-fill" style="width:'+w+'%"></div></div></div>';
+    }).join('');
+}
+/* 数字滚动动画（缺陷总数） */
+function animateCount(el, to){
+    const from = lastTotal >= 0 ? lastTotal : 0;
+    lastTotal = to;
+    if(from === to){ el.textContent = to; return; }
+    const dur = 600, t0 = performance.now();
+    function step(t){
+        const p = Math.min(1, (t - t0)/dur);
+        const eased = 1 - Math.pow(1-p, 3);
+        el.textContent = Math.round(from + (to-from)*eased);
+        if(p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+}
+function updateSummary(){
+    const entries = Object.entries(data);
+    const total = entries.reduce((s,e)=>s+e[1], 0);
+    animateCount($('sumTotal'), total);
+    $('sumKinds').textContent = entries.length;
+    let top = null;
+    for(const [k,v] of entries){ if(!top || v>top.v) top = {k,v}; }
+    $('sumTop').textContent = top ? (top.k+' '+top.v+(total? ' · '+(top.v/total*100).toFixed(1)+'%' : '')) : '–';
+}
+
+/* ================= 数据表 ================= */
+function renderTable(){
+    const tb = $('dataBody');
+    tb.innerHTML = '';
+    Object.entries(data).forEach(([name, val]) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+            '<td><input class="in-name" value="'+escAttr(name)+'" /></td>'+
+            '<td><input class="in-val" type="number" min="0" step="1" value="'+Number(val)+'" /></td>'+
+            '<td style="text-align:right"><button class="del" title="删除该行">✕</button></td>';
+        const inName = tr.querySelector('.in-name');
+        const inVal = tr.querySelector('.in-val');
+        inName.dataset.old = name;
+        inVal.dataset.old = name;
+        inName.addEventListener('change', () => {
+            const oldKey = inName.dataset.old;
+            const newKey = inName.value.trim();
+            if(!newKey){ inName.value = oldKey; return; }
+            if(newKey !== oldKey){
+                if(Object.prototype.hasOwnProperty.call(data, newKey)){
+                    alert('已存在同名缺陷："'+newKey+'"');
+                    inName.value = oldKey; return;
+                }
+                data = Object.fromEntries(Object.entries(data).map(([k,v]) => k===oldKey ? [newKey,v] : [k,v]));
+                renderTable(); refreshCharts(); markDirty();
+            }
+        });
+        inVal.addEventListener('change', () => {
+            const k = inVal.dataset.old;
+            const v = Math.max(0, Math.round(Number(inVal.value) || 0));
+            data[k] = v; inVal.value = v;
+            refreshCharts(); markDirty();
+        });
+        tb.appendChild(tr);
+    });
+}
+function addRow(){
+    let i = 1, key;
+    do { key = '新缺陷' + i; i++; } while(Object.prototype.hasOwnProperty.call(data, key));
+    data[key] = 1;
+    renderTable(); refreshCharts(); markDirty();
+}
+function markDirty(){
+    if(chatStarted && !streaming){ $('dataHint').classList.remove('hidden'); }
+}
+
+/* ================= 树莓派数据 ================= */
+function cleanLabel(s){
+    return String(s)
+        .replace(/<[^>]+>/g,'')
+        .replace(/&nbsp;/g,' ')
+        .replace(/&[a-z]+;/gi,' ')
+        .trim()
+        .replace(/\s+/g,' ');
+}
+/* 从树莓派页面文本中识别"标签 + 数字"，返回 {标签:数值} 或 null */
+function parsePiData(text){
+    const entries = {};
+    const add = (label, val) => {
+        label = cleanLabel(label);
+        if(!label || label.length > 24) return;
+        if(/^\d+$/.test(label)) return;               // 纯数字不算标签
+        if(isNaN(val) || val < 0) return;
+        if(!entries[label]) entries[label] = val;
+    };
+    // 模式A：HTML 表格相邻单元格 <td>标签</td><td>数字</td>
+    const tdRe = /<t[dh][^>]*>\s*([^<]{1,30}?)\s*<\/t[dh]>\s*<t[dh][^>]*>\s*([\d,]+)\s*<\/t[dh]>/gi;
+    let m;
+    while((m = tdRe.exec(text))){ add(m[1], parseInt(m[2].replace(/,/g,''), 10)); }
+    if(Object.keys(entries).length) return entries;
+    // 模式B：标签后跟冒号/等号/空格 + 数字（"擦伤：331" 或 "擦伤 331 个"）
+    const lineRe = /([\u4e00-\u9fa5A-Za-z][\u4e00-\u9fa5A-Za-z0-9_（）()\/·\-\s]{0,15}?)\s*[:：=为是]\s*([\d,]+)/g;
+    while((m = lineRe.exec(text))){ add(m[1], parseInt(m[2].replace(/,/g,''), 10)); }
+    if(Object.keys(entries).length) return entries;
+    // 模式C：仅数字行，前面的中文/单词为标签（宽松：行内"中文 数字"）
+    const looseRe = /([\u4e00-\u9fa5][\u4e00-\u9fa5]{0,6})\s*[\s:：=]\s*([\d,]+)/g;
+    while((m = looseRe.exec(text))){ add(m[1], parseInt(m[2].replace(/,/g,''), 10)); }
+    return Object.keys(entries).length ? entries : null;
+}
+async function fetchPiData(){
+    const btn = $('piFetchBtn');
+    if(!settings.piUrl){
+        openSettings();
+        showToast('⚠️ 请先在设置里填写“树莓派数据地址”');
+        return;
+    }
+    btn.disabled = true;
+    btn.textContent = '获取中…';
+    try{
+        const r = await fetch('/api/pi-data?url=' + encodeURIComponent(settings.piUrl));
+        const j = await r.json().catch(() => ({}));
+        if(!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
+        let items = j.items || null;
+        if(!items && j.text){
+            // 兜底：对普通 HTML 页面做启发式解析
+            const entries = parsePiData(j.text || '');
+            if(entries){ items = Object.entries(entries).map(([k,v]) => ({key:k, label:k, value:v})); }
+        }
+        if(!items || !items.length) throw new Error('未能从树莓派识别出缺陷计数数据');
+        // 排除“正常/合格”类（不是缺陷）
+        const skipLabels = ['正常','合格','良好','ok','good','normal'];
+        const newData = {};
+        let skipped = 0;
+        for(const it of items){
+            const label = String(it.label || it.key || '').trim();
+            if(skipLabels.indexOf(label.toLowerCase()) >= 0){ skipped++; continue; }
+            newData[label] = it.value;
+        }
+        if(!Object.keys(newData).length) throw new Error('获取到的都是“正常”类数据，没有缺陷计数');
+        data = newData;
+        renderTable();
+        refreshCharts();
+        showToast('✅ 已获取树莓派实时数据（' + Object.keys(newData).length + ' 类缺陷' +
+            (skipped ? '，已排除' + skipped + '类“正常”' : '') + '）');
+    }catch(err){
+        showToast('❌ ' + err.message);
+    }finally{
+        btn.disabled = false;
+        btn.textContent = '📡 树莓派数据';
+    }
+}
+
+/* ================= AI 对话 ================= */
+function systemPrompt(){
+    const rows = Object.entries(data).map(([k,v]) => '- '+k+'：'+v).join('\n');
+    return '你是制造业智能质检领域的数据分析专家，正在为一份产品缺陷统计做分析。\n' +
+        '当前缺陷统计数据（计数）：\n' + rows + '\n' +
+        '请按以下结构用中文给出分析（总字数 400 字以内，用小标题+要点）：\n' +
+        '1. 数据概览：缺陷总数、各类占比；\n' +
+        '2. 主要问题：按影响程度排出前 1-2 类最需优先处理的缺陷及占比；\n' +
+        '3. 可能原因：结合制造业常见工艺/设备/原料因素，给出合理推测；\n' +
+        '4. 改进建议：针对上述问题给出可落地的改进措施。\n' +
+        '如果用户后续追问，请结合这份数据继续回答。';
+}
+
+function startAnalysis(){
+    if(streaming) return;
+    chatStarted = true;
+    $('chatEmpty').classList.add('hidden');
+    messages = [];
+    sendMessage('请根据当前缺陷数据，生成一份完整的分析报告。');
+}
+
+function sendMessage(content){
+    if(streaming) return;
+    if(!content.trim()) return;
+    messages.push({ role:'user', content: content.trim() });
+    const chatArea = $('chatArea');
+    const m = document.createElement('div');
+    m.className = 'msg user';
+    m.textContent = content.trim();
+    chatArea.appendChild(m);
+    chatArea.scrollTop = chatArea.scrollHeight;
+    streamAssistant();
+}
+
+function renderAssistantBubble(){
+    const chatArea = $('chatArea');
+    const wrap = document.createElement('div');
+    wrap.className = 'msg assistant';
+    wrap.innerHTML =
+        '<div class="a-head">AI 分析'+
+        '<button class="copy ghost" title="复制该条回答">复制</button></div>'+
+        '<div class="a-body"></div>';
+    const body = wrap.querySelector('.a-body');
+    const copyBtn = wrap.querySelector('.copy');
+    wrap._plain = '';
+    copyBtn.addEventListener('click', () => {
+        if(wrap._plain){ navigator.clipboard.writeText(wrap._plain).then(()=>{ copyBtn.textContent='✓ 已复制'; setTimeout(()=>copyBtn.textContent='复制',1200); }); }
+    });
+    chatArea.appendChild(wrap);
+    chatArea.scrollTop = chatArea.scrollHeight;
+    const rBox = {
+        el: null,
+        render(text){
+            if(!this.el){
+                this.el = document.createElement('details');
+                this.el.className = 'reasoning';
+                this.el.innerHTML = '<summary>💭 思考过程（deepseek-reasoner）</summary><div class="r-content"></div>';
+                body.appendChild(this.el);
+            }
+            this.el.querySelector('.r-content').textContent = text;
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+    };
+    return { wrap, body, rBox };
+}
+
+async function streamAssistant(){
+    streaming = true;
+    setStreamingUI(true);
+    abortCtrl = new AbortController();
+    const chatArea = $('chatArea');
+    const { wrap, body, rBox } = renderAssistantBubble();
+    const contentDiv = body;
+    let content = '', reasoning = '', sseDone = false;
+
+    const msgs = [{ role:'system', content: systemPrompt() }].concat(messages);
+
+    const processSSE = (event) => {
+        for(const line of event.split('\n')){
+            if(!line.startsWith('data:')) continue;
+            const payload = line.slice(5).trim();
+            if(payload === '[DONE]'){ sseDone = true; continue; }
+            let chunk;
+            try{ chunk = JSON.parse(payload); }catch(e){ continue; }
+            const delta = (chunk.choices && chunk.choices[0] && chunk.choices[0].delta) || {};
+            if(delta.reasoning_content){
+                reasoning += delta.reasoning_content;
+                rBox.render(reasoning);
+            }
+            if(delta.content){
+                content += delta.content;
+                contentDiv.innerHTML = md(content) + '<span class="caret"></span>';
+                wrap._plain = content;
+                chatArea.scrollTop = chatArea.scrollHeight;
+            }
+        }
+    };
+
+    try{
+        const res = await fetch('/api/chat', {
+            method:'POST',
+            headers:{ 'Content-Type':'application/json' },
+            body: JSON.stringify({
+                apiKey: settings.apiKey || undefined,
+                baseUrl: settings.baseUrl,
+                model: settings.model,
+                temperature: settings.temperature,
+                max_tokens: 1024,
+                stream: true,
+                messages: msgs
+            }),
+            signal: abortCtrl.signal
+        });
+        if(!res.ok){
+            let msg = 'HTTP ' + res.status;
+            try{ const j = await res.json(); if(j.error) msg = j.error; }catch(e){}
+            throw new Error(msg);
+        }
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        while(true){
+            const { done, value } = await reader.read();
+            if(done) break;
+            buffer += decoder.decode(value, { stream:true });
+            let idx;
+            while((idx = buffer.indexOf('\n\n')) >= 0){
+                const event = buffer.slice(0, idx);
+                buffer = buffer.slice(idx + 2);
+                processSSE(event);
+                if(sseDone) break;
+            }
+            if(sseDone) break;
+        }
+        if(!sseDone && buffer.trim()) processSSE(buffer);
+
+        if(!content && !reasoning){
+            contentDiv.innerHTML = '<span class="error">（模型未返回任何内容：请检查设置的模型名是否正确，或在设置里点"测试连接"）</span>';
+        }
+        messages.push({ role:'assistant', content, reasoning });
+    }catch(err){
+        if(err.name === 'AbortError'){
+            contentDiv.innerHTML = md(content || '（已停止）');
+            if(content) messages.push({ role:'assistant', content, reasoning });
+        }else{
+            contentDiv.innerHTML = '<span class="error">❌ '+escapeHtml(err.message)+'</span>';
+            if(/未设置 API Key/.test(err.message)){
+                showToast('⚠️ 未检测到 Key：请点右上角“设置”粘贴（输入即自动保存）');
+            }
+        }
+    }finally{
+        contentDiv.innerHTML = md(content);
+        wrap._plain = content || wrap._plain;
+        streaming = false;
+        abortCtrl = null;
+        setStreamingUI(false);
+        $('userInput').focus();
+    }
+}
+
+function setStreamingUI(on){
+    $('analyzeBtn').disabled = on;
+    $('sendBtn').disabled = on || !$('userInput').value.trim();
+    $('reanalyzeBtn').disabled = on;
+    $('clearBtn').disabled = on;
+    $('stopBtn').classList.toggle('hidden', !on);
+    if(on){ $('stopBtn').textContent = '⏹ 停止'; }
+}
+
+function stopStreaming(){
+    if(abortCtrl){ abortCtrl.abort(); }
+}
+
+function clearChat(){
+    if(streaming) return;
+    messages = [];
+    chatStarted = false;
+    $('chatArea').innerHTML =
+        '<div class="empty" id="chatEmpty"><p>AI 会基于左侧的缺陷统计生成分析报告，生成后你可以继续追问。</p>'+
+        '<button id="analyzeBtn" class="primary">◈ 生成 AI 分析报告</button></div>';
+    wireAnalyzeBtn();
+    $('userInput').value = '';
+    setStreamingUI(false);
+    $('dataHint').classList.add('hidden');
+}
+
+function reanalyze(){
+    if(streaming) return;
+    chatStarted = true;
+    $('chatEmpty').classList.add('hidden');
+    messages = [];
+    sendMessage('请根据当前缺陷数据，重新生成一份完整的分析报告。');
+}
+
+/* ================= 设置 ================= */
+function updateKeyStatus(){
+    const badge = $('keyStatus');
+    if(settings.apiKey){
+        badge.textContent = '✓ KEY 已配置';
+        badge.className = 'badge ok';
+    }else{
+        badge.textContent = '未配置 KEY';
+        badge.className = 'badge warn';
+    }
+    $('modelTag').textContent = settings.model;
+    const ks = $('keyState');
+    if(ks){
+        if(settings.apiKey){
+            ks.textContent = '✓ Key 已保存（输入即自动保存）';
+            ks.style.color = '#34d399';
+        }else{
+            ks.textContent = '未保存（粘贴 Key 后此处会立即变绿）';
+            ks.style.color = '#f87171';
+        }
+    }
+}
+function openSettings(){
+    $('setKey').value = settings.apiKey;
+    $('setBase').value = settings.baseUrl;
+    $('setModel').value = settings.model;
+    $('setPiUrl').value = settings.piUrl || '';
+    $('setTemp').value = settings.temperature;
+    $('tempVal').textContent = settings.temperature;
+    $('testResult').textContent = '';
+    $('testResult').className = 'hint';
+    $('settingsModal').classList.remove('hidden');
+    if(!settings.apiKey){ setTimeout(() => $('setKey').focus(), 60); }
+}
+function closeSettings(){
+    saveForm();   // 关闭窗口时自动保存当前填写的内容，不再丢失
+    $('settingsModal').classList.add('hidden');
+}
+function saveForm(){
+    settings.apiKey = $('setKey').value.trim();
+    settings.baseUrl = $('setBase').value.trim().replace(/\/+$/,'') || DEFAULTS.baseUrl;
+    settings.model = $('setModel').value.trim() || DEFAULTS.model;
+    settings.temperature = parseFloat($('setTemp').value) || 0.3;
+    settings.piUrl = $('setPiUrl').value.trim();
+    saveSettings();
+    updateKeyStatus();
+}
+function saveSettingsNow(){
+    saveForm();
+    closeSettings();
+    showToast('✅ 设置已保存');
+}
+let toastTimer = null;
+function showToast(msg){
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
+}
+async function testConnection(){
+    const btn = $('testConnBtn');
+    const res = $('testResult');
+    btn.disabled = true;
+    btn.textContent = '测试中…';
+    res.className = 'hint';
+    res.textContent = '';
+    try{
+        const r = await fetch('/api/chat', {
+            method:'POST',
+            headers:{ 'Content-Type':'application/json' },
+            body: JSON.stringify({
+                apiKey: $('setKey').value.trim() || undefined,
+                baseUrl: $('setBase').value.trim() || DEFAULTS.baseUrl,
+                model: $('setModel').value.trim() || DEFAULTS.model,
+                temperature: 0,
+                max_tokens: 10,
+                stream: false,
+                messages: [{ role:'user', content:'请只回复两个字：正常' }]
+            })
+        });
+        if(r.ok){
+            res.className = 'hint';
+            res.style.color = '#34d399';
+            res.textContent = '✅ 连接成功，模型可用（Key 已自动保存）';
+            saveForm();
+        }else{
+            let msg = 'HTTP ' + r.status;
+            try{ const j = await r.json(); if(j.error) msg = j.error; }catch(e){}
+            res.className = 'hint';
+            res.style.color = '#f87171';
+            res.textContent = '❌ ' + msg;
+        }
+    }catch(e){
+        res.className = 'hint';
+        res.style.color = '#f87171';
+        res.textContent = '❌ ' + e.message;
+    }finally{
+        btn.disabled = false;
+        btn.textContent = '🔌 测试连接';
+    }
+}
+
+/* ================= 绑定 ================= */
+function wireAnalyzeBtn(){
+    $('analyzeBtn').addEventListener('click', startAnalysis);
+}
+function wireUI(){
+    wireAnalyzeBtn();
+    $('addRowBtn').addEventListener('click', addRow);
+    $('piFetchBtn').addEventListener('click', fetchPiData);
+    $('dataBody').addEventListener('click', (e) => {
+        if(e.target.classList.contains('del')){
+            const tr = e.target.closest('tr');
+            const name = tr.querySelector('.in-name').dataset.old;
+            delete data[name];
+            renderTable(); refreshCharts(); markDirty();
+        }
+    });
+    $('settingsBtn').addEventListener('click', openSettings);
+    $('keyStatus').addEventListener('click', openSettings);
+    $('closeSettingsBtn').addEventListener('click', closeSettings);
+    $('saveSettingsBtn').addEventListener('click', saveSettingsNow);
+    $('testConnBtn').addEventListener('click', testConnection);
+    $('setTemp').addEventListener('input', () => {
+        $('tempVal').textContent = $('setTemp').value;
+        settings.temperature = parseFloat($('setTemp').value) || 0.3;
+        saveSettings();
+    });
+    // 边输入边保存：填 Key / 改模型 / 改接口地址都立即存入 localStorage，关闭窗口也不丢
+    $('setKey').addEventListener('input', () => {
+        settings.apiKey = $('setKey').value.trim();
+        saveSettings();
+        updateKeyStatus();
+    });
+    $('setModel').addEventListener('input', () => {
+        settings.model = $('setModel').value.trim() || DEFAULTS.model;
+        saveSettings();
+        updateKeyStatus();
+    });
+    $('setBase').addEventListener('input', () => {
+        settings.baseUrl = $('setBase').value.trim().replace(/\/+$/,'') || DEFAULTS.baseUrl;
+        saveSettings();
+    });
+    $('setPiUrl').addEventListener('input', () => {
+        settings.piUrl = $('setPiUrl').value.trim();
+        saveSettings();
+    });
+    $('settingsModal').addEventListener('click', (e) => { if(e.target === $('settingsModal')) closeSettings(); });
+    $('sendBtn').addEventListener('click', () => {
+        const v = $('userInput').value;
+        if(v.trim()){ $('userInput').value = ''; sendMessage(v); }
+    });
+    $('userInput').addEventListener('keydown', (e) => {
+        if(e.key === 'Enter' && !e.shiftKey){
+            e.preventDefault();
+            const v = $('userInput').value;
+            if(v.trim() && !streaming){ $('userInput').value = ''; sendMessage(v); }
+        }
+    });
+    $('userInput').addEventListener('input', () => { $('sendBtn').disabled = streaming || !$('userInput').value.trim(); });
+    $('stopBtn').addEventListener('click', stopStreaming);
+    $('clearBtn').addEventListener('click', clearChat);
+    $('reanalyzeBtn').addEventListener('click', reanalyze);
+}
+
+/* ================= 初始化 ================= */
+window.addEventListener('DOMContentLoaded', () => {
+    initCharts();
+    renderTable();
+    wireUI();
+    updateKeyStatus();
+});
+</script>
+</body>
+</html>
